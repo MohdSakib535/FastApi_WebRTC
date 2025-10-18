@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  webrtc-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webrtc-fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - STUN_SERVER=stun:stun.l.google.com:19302
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ./app:/app/app
+    restart: unless-stopped
+    networks:
+      - webrtc-network
+
+networks:
+  webrtc-network:
+    driver: bridge

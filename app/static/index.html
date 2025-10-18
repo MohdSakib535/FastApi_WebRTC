@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Video Chat</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎥 WebRTC Video Chat</h1>
+            <p class="subtitle">Connect face-to-face, anywhere in the world</p>
+        </header>
+
+        <div class="controls">
+            <div class="room-controls">
+                <input type="text" id="roomInput" placeholder="Enter room name (e.g., my-meeting)" />
+                <button id="joinBtn" class="btn-primary" onclick="joinRoom()">Join Room</button>
+                <button id="leaveBtn" class="btn-danger" onclick="leaveRoom()" disabled>Leave Room</button>
+            </div>
+            <div class="media-controls">
+                <button id="toggleVideo" class="btn-success" onclick="toggleVideo()">📹 Video On</button>
+                <button id="toggleAudio" class="btn-success" onclick="toggleAudio()">🎤 Audio On</button>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">Status:</span>
+                <span id="statusText" class="status-value">Not connected</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Your ID:</span>
+                <span id="clientId" class="status-value">Generating...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Room:</span>
+                <span id="currentRoom" class="status-value">None</span>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <div class="video-box">
+                <div class="video-header">
+                    <h3>📹 Your Video</h3>
+                    <span class="video-status" id="localStatus">Initializing...</span>
+                </div>
+                <video id="localVideo" autoplay muted playsinline></video>
+                <div class="video-overlay">
+                    <p>You</p>
+                </div>
+            </div>
+            <div class="video-box">
+                <div class="video-header">
+                    <h3>👤 Remote Video</h3>
+                    <span class="video-status" id="remoteStatus">Waiting...</span>
+                </div>
+                <video id="remoteVideo" autoplay playsinline></video>
+                <div class="video-overlay" id="remoteOverlay">
+                    <p>Waiting for peer...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <div class="peers-section">
+                <h3>👥 Room Participants</h3>
+                <ul id="peersList">
+                    <li class="no-peers">No participants yet</li>
+                </ul>
+            </div>
+            <div class="instructions-section">
+                <h3>📋 How to Use</h3>
+                <ol>
+                    <li>Enter a room name (same for all participants)</li>
+                    <li>Click "Join Room" and allow camera/microphone access</li>
+                    <li>Share the room name with others</li>
+                    <li>Wait for others to join the same room</li>
+                    <li>Start your video conversation!</li>
+                </ol>
+            </div>
+        </div>
+
+        <footer>
+            <p>Built with FastAPI & WebRTC | <a href="/docs" target="_blank">API Docs</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/js/webrtc.js"></script>
+</body>
+</html>
