@@ -88,6 +88,20 @@ SSL_KEYFILE=./your-machine.local+1-key.pem \
 
 Then open `https://your-machine.local:8000` or `https://192.168.1.10:8000`. Trust prompts should disappear once the mkcert CA is installed on each device.
 
+### Alternative: Use ngrok for HTTPS Tunnel
+
+If certificate setup feels heavy, ngrok can expose your local server over HTTPS:
+
+```bash
+# Terminal 1
+./run.sh
+
+# Terminal 2 (ngrok auth token required)
+ngrok http 8000
+```
+
+Share the generated `https://` forwarding URL with other devices. Since ngrok terminates TLS, browsers allow camera/mic immediately.
+
 ## Common Commands
 
 ```bash
@@ -120,7 +134,7 @@ netstat -ano | findstr :8000
 
 **Camera not working?**
 - Click camera icon in browser address bar
-- Allow permissions
+- Allow permissions (HTTPS required for non-localhost URLs; use mkcert or ngrok)
 - Try different browser
 
 **Can't connect to peer?**
