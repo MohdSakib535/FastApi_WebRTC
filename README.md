@@ -24,13 +24,13 @@ A real-time peer-to-peer video chat application built with FastAPI and WebRTC.
 
 ```bash
 # Build and start
-docker-compose up -d
+docker compose up --build
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop
-docker-compose down
+docker compose down
 ```
 
 Access: http://localhost:8000 (or see [Access from Other Devices](#access-from-other-devices))
@@ -95,22 +95,22 @@ Open two browser tabs:
 
 ```bash
 # Build
-docker-compose build
+docker compose build
 
 # Start
-docker-compose up -d
+docker compose up -d
 
 # Stop
-docker-compose down
+docker compose down
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Restart
-docker-compose restart
+docker compose restart
 
 # Remove everything
-docker-compose down -v
+docker compose down -v
 ```
 
 ## Project Structure
@@ -175,33 +175,5 @@ For production use:
 
 MIT License
 
-## Support
-
-For issues, please check the logs and browser console (F12).
 
 
-build:
-	docker-compose build
-
-up:
-	docker-compose up -d
-	@echo "✅ Application started at http://localhost:8000"
-
-dev:
-	docker-compose up
-
-down:
-	docker-compose down
-
-restart:
-	docker-compose restart
-
-logs:
-	docker-compose logs -f
-
-clean:
-	docker-compose down -v
-	docker system prune -f
-
-shell:
-	docker-compose exec webrtc-app /bin/bash
