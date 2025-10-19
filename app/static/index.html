@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Video Chat</title>
+    <title>WebRTC Video Chat By sakib</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🎥 WebRTC Video Chat</h1>
+            <h1>🎥 WebRTC Video Chat By Sakibb </h1>
             <p class="subtitle">Connect face-to-face, anywhere in the world</p>
         </header>
 
@@ -40,7 +40,7 @@
             </div>
         </div>
 
-        <div class="video-container">
+        <div class="video-container" id="videoContainer">
             <div class="video-box">
                 <div class="video-header">
                     <h3>📹 Your Video</h3>
@@ -51,16 +51,16 @@
                     <p>You</p>
                 </div>
             </div>
-            <div class="video-box">
+            <div class="video-box notice" id="noRemotesNotice">
                 <div class="video-header">
-                    <h3>👤 Remote Video</h3>
-                    <span class="video-status" id="remoteStatus">Waiting...</span>
+                    <h3>👥 Remote Participants</h3>
+                    <span class="video-status">Waiting...</span>
                 </div>
-                <video id="remoteVideo" autoplay playsinline></video>
-                <div class="video-overlay" id="remoteOverlay">
-                    <p>Waiting for peer...</p>
+                <div class="video-overlay">
+                    <p>Join the same room on another device to see their video here.</p>
                 </div>
             </div>
+            <!-- Remote participant video boxes will be added here dynamically -->
         </div>
 
         <div class="info-panel">

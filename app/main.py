@@ -24,6 +24,33 @@ app.include_router(webrtc.router)
 async def read_root():
     return FileResponse(os.path.join(static_path, "index.html"))
 
+@app.get("/config")
+async def rtc_config():
+    """Expose ICE server config to the frontend.
+
+    Environment variables (optional):
+    - TURN_URL: e.g. stun:stun.l.google.com:19302 or turn:turn.example.com:3478
+    - TURN_USERNAME
+    - TURN_PASSWORD
+    """
+    ice_servers = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:stun1.l.google.com:19302"},
+    ]
+
+    turn_url = os.getenv("TURN_URL")
+    turn_username = os.getenv("TURN_USERNAME")
+    turn_password = os.getenv("TURN_PASSWORD")
+
+    if turn_url and turn_username and turn_password:
+        ice_servers.append({
+            "urls": turn_url,
+            "username": turn_username,
+            "credential": turn_password,
+        })
+
+    return {"iceServers": ice_servers}
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "message": "WebRTC server is running"}
