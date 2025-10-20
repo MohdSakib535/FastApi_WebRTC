@@ -10,6 +10,8 @@ router = APIRouter()
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Dict[str, WebSocket]] = {}
+        # Track one active recorder per room
+        self.room_active_recorder: Dict[str, str] = {}
 
     async def connect(self, websocket: WebSocket, room: str, client_id: str):
         await websocket.accept()
@@ -26,6 +28,9 @@ class ConnectionManager:
             if not self.active_connections[room]:
                 del self.active_connections[room]
                 logger.info(f"🗑️  Room {room} is now empty")
+            # If the leaving client was the active recorder, clear it and announce
+            if self.room_active_recorder.get(room) == client_id:
+                self.room_active_recorder.pop(room, None)
 
     async def send_to_client(self, message: dict, room: str, client_id: str):
         if room in self.active_connections and client_id in self.active_connections[room]:
@@ -48,6 +53,9 @@ class ConnectionManager:
             return list(self.active_connections[room].keys())
         return []
 
+    def get_active_recorder(self, room: str):
+        return self.room_active_recorder.get(room)
+
 manager = ConnectionManager()
 
 @router.websocket("/ws/{room}/{client_id}")
@@ -68,7 +76,8 @@ async def websocket_endpoint(websocket: WebSocket, room: str, client_id: str):
         await manager.send_to_client(
             {
                 "type": "room-clients",
-                "clients": manager.get_room_clients(room)
+                "clients": manager.get_room_clients(room),
+                "active_recorder": manager.get_active_recorder(room)
             },
             room,
             client_id
@@ -115,8 +124,65 @@ async def websocket_endpoint(websocket: WebSocket, room: str, client_id: str):
                     room,
                     target_id
                 )
+            
+            elif message_type == "recording-state":
+                want_on = bool(data.get("recording", False))
+                current = manager.get_active_recorder(room)
+                if want_on:
+                    if current and current != client_id:
+                        # Deny: someone else is already recording
+                        await manager.send_to_client(
+                            {
+                                "type": "recording-denied",
+                                "active_recorder": current,
+                            },
+                            room,
+                            client_id,
+                        )
+                    else:
+                        manager.room_active_recorder[room] = client_id
+                        await manager.broadcast_to_room(
+                            {
+                                "type": "recording-state",
+                                "sender_id": client_id,
+                                "recording": True,
+                                "active_recorder": client_id,
+                            },
+                            room,
+                            exclude_client=None,
+                        )
+                else:
+                    # Turning off only if the sender is the active recorder
+                    if current == client_id:
+                        manager.room_active_recorder.pop(room, None)
+                        await manager.broadcast_to_room(
+                            {
+                                "type": "recording-state",
+                                "sender_id": client_id,
+                                "recording": False,
+                                "active_recorder": None,
+                            },
+                            room,
+                            exclude_client=None,
+                        )
+
+            elif message_type == "transcript-update":
+                # Allow transcript only from the active recorder
+                if manager.get_active_recorder(room) == client_id:
+                    await manager.broadcast_to_room(
+                        {
+                            "type": "transcript-update",
+                            "sender_id": client_id,
+                            "buffer": data.get("buffer", ""),
+                            "interim": data.get("interim", ""),
+                            "language": data.get("language"),
+                        },
+                        room,
+                        exclude_client=None,
+                    )
 
     except WebSocketDisconnect:
+        was_recorder = manager.get_active_recorder(room) == client_id
         manager.disconnect(room, client_id)
         await manager.broadcast_to_room(
             {
@@ -125,6 +191,16 @@ async def websocket_endpoint(websocket: WebSocket, room: str, client_id: str):
             },
             room
         )
+        if was_recorder:
+            await manager.broadcast_to_room(
+                {
+                    "type": "recording-state",
+                    "sender_id": client_id,
+                    "recording": False,
+                    "active_recorder": None,
+                },
+                room,
+            )
     except Exception as e:
         logger.error(f"❌ Error in websocket: {e}")
         manager.disconnect(room, client_id)

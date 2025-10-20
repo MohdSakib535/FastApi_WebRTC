@@ -22,6 +22,7 @@
             <div class="media-controls">
                 <button id="toggleVideo" class="btn-success" onclick="toggleVideo()">📹 Video On</button>
                 <button id="toggleAudio" class="btn-success" onclick="toggleAudio()">🎤 Audio On</button>
+                <button id="recordBtn" class="btn-primary" onclick="toggleRecording()" disabled>⏺️ Start Recording</button>
             </div>
         </div>
 
@@ -37,6 +38,10 @@
             <div class="status-item">
                 <span class="status-label">Room:</span>
                 <span id="currentRoom" class="status-value">None</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Recording:</span>
+                <span id="recordingStatus" class="status-value">Off</span>
             </div>
         </div>
 
@@ -79,6 +84,16 @@
                     <li>Wait for others to join the same room</li>
                     <li>Start your video conversation!</li>
                 </ol>
+                <div style="margin-top: 12px;">
+                    <h3>📝 Room Transcript</h3>
+                    <div id="transcriptOutput" style="background:#111; color:#ddd; padding:10px; border-radius:6px; min-height:60px; white-space:pre-wrap;"></div>
+                    <div style="margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap: wrap;">
+                        <button id="summarizeBtn" class="btn-primary" onclick="summarizeRoom()" disabled>🧠 Summarize</button>
+                        <button id="downloadPdfBtn" class="btn-primary" onclick="downloadSummaryPdf()" disabled>⬇️ Download PDF</button>
+                        <span id="summaryStatus" style="color:#6b7280;"></span>
+                    </div>
+                    <div id="summaryOutput" style="margin-top:10px; background:#0d1321; color:#e5e7eb; padding:12px; border-radius:8px; min-height:48px; white-space:pre-wrap;"></div>
+                </div>
             </div>
         </div>
 

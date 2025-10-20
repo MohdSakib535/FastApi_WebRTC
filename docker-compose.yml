@@ -12,8 +12,12 @@ services:
       - STUN_SERVER=stun:stun.l.google.com:19302
       - HOST=0.0.0.0
       - PORT=8000
+      # Point to your LOCAL Postgres from inside the container (macOS/Windows)
+      - DATABASE_URL=postgresql+psycopg2://postgres:admin@host.docker.internal:5432/webrtc
+      # DATABASE_URL=postgresql+asyncpg://postgres:admin@localhost:5432/fastapi_async
     volumes:
       - ./app:/app/app
+      - ./.env:/app/.env:ro
     restart: unless-stopped
     networks:
       - webrtc-network

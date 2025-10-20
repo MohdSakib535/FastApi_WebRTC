@@ -9,6 +9,11 @@ A real-time peer-to-peer video chat application built with FastAPI and WebRTC.
 - 🌐 WebSocket signaling server
 - 📱 Responsive design
 - 🎛️ Media controls (mute/unmute, video on/off)
+- ⏺️ Recording with client-side speech-to-text
+- 🔄 Live recording indicator and shared transcript across the room
+- 🔒 Single active recorder per room (others see status and transcript)
+- 🧠 LLM summaries (OpenAI or Hugging Face)
+- ⬇️ Export summary to PDF
 - 👥 Multiple participants support
 - 🐳 Docker support
 
@@ -65,6 +70,23 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 5. Share the room name with others
 6. Start video chatting!
 
+### Record + Transcribe Speech
+
+- Click "⏺️ Start Recording" to begin transcribing spoken audio (Chrome-based browsers).
+- Click again to stop; the transcript saves to the database.
+- Everyone in the same room sees:
+  - A live "Recording" indicator with who is recording
+  - The evolving transcript in real time
+  - Final transcript text appended when speech segments finish
+
+### Summarize + Export
+
+- Click "🧠 Summarize" to generate a concise summary of the room conversation using your configured LLM provider.
+- Click "⬇️ Download PDF" to download a well‑structured PDF (title, room, timestamp, content).
+- API endpoints:
+  - POST `/summaries/room/{room}` → `{ room, summary }`
+  - POST `/summaries/room/{room}/pdf` → `application/pdf`
+
 ## Access from Other Devices
 
 WebRTC permissions require a **secure context** (HTTPS or localhost). When you visit `http://<your-ip>:8000` from another machine, browsers block camera/mic access. Use one of the following approaches.
@@ -119,10 +141,20 @@ docker-compose down -v
 webrtc-fastapi/
 ├── app/
 │   ├── main.py              # FastAPI app
-│   ├── models.py            # Data models
+│   ├── config.py            # Centralized settings from .env
+│   ├── db.py                # SQLAlchemy engine/session
+│   ├── db_models.py         # ORM models (e.g., Transcript)
+│   ├── schemas.py           # Pydantic schemas
 │   ├── routers/
-│   │   └── webrtc.py        # WebSocket endpoints
+│   │   ├── webrtc.py        # WebSocket signaling
+│   │   ├── transcripts.py   # REST: store/list transcripts
+│   │   └── summaries.py     # REST: summarize + PDF
 │   ├── services/
+│   │   └── llm/
+│   │       ├── base.py      # LLMProvider interface
+│   │       ├── factory.py   # Provider selector (OpenAI/HF)
+│   │       ├── openai_provider.py
+│   │       └── hf_provider.py
 │   └── static/
 │       ├── css/
 │       │   └── style.css
@@ -143,6 +175,32 @@ Edit `.env` file:
 STUN_SERVER=stun:stun.l.google.com:19302
 HOST=0.0.0.0
 PORT=8000
+DATABASE_URL=postgresql+psycopg2://webrtc:webrtc@localhost:5432/webrtc
+
+Using local Postgres (no DB container):
+- Ensure your local PostgreSQL is running and accessible on port 5432
+- Update credentials in `.env` and `docker-compose.yml` as needed
+- For Docker on macOS/Windows, use `host.docker.internal` as the host in `DATABASE_URL`
+  Example: `postgresql+psycopg2://webrtc:webrtc@host.docker.internal:5432/webrtc`
+- On Linux, use the host IP or set up Docker host networking.
+
+Docker Compose mounts your local `.env` into the container (see `docker-compose.yml`) so the app reads environment variables directly from it.
+
+LLM config (choose one provider):
+- OpenAI
+  - `LLM_PROVIDER=openai`
+  - `OPENAI_API_KEY=sk-...`
+  - Optional: `OPENAI_MODEL=gpt-4o-mini`
+- Hugging Face
+  - `LLM_PROVIDER=huggingface`
+  - `HF_API_KEY=hf_...`
+  - Optional: `HF_MODEL=facebook/bart-large-cnn`
+
+APIs:
+- POST `/transcripts` { room, client_id, language?, text } → stores a transcript row
+- POST `/summaries/room/{room}` → returns `{ summary }` using configured LLM
+- POST `/summaries/room/{room}/pdf` → returns `application/pdf`
+- GET  `/transcripts?room=<name>&limit=<N>` → recent transcript rows
 ```
 
 ## Troubleshooting
@@ -162,6 +220,16 @@ docker-compose up -d -e PORT=8001
 - Ensure both users in same room
 - Check firewall settings
 - View logs: `docker-compose logs -f`
+
+### LLM summary errors
+- Error: "LLM provider not configured" → set `LLM_PROVIDER` and the corresponding API key in `.env`.
+- Running in Docker: ensure `.env` is mounted (it is by default) and restart after editing.
+- OpenAI httpx error → we pin `httpx` to `0.27.x` in `requirements.txt` for compatibility.
+
+### Transcripts not saving
+- Only the active recorder saves rows; ensure your device is the recorder.
+- DATABASE_URL must point to a reachable Postgres host from inside the container.
+- Tables auto‑create on startup; ensure the app started successfully.
 
 ## Production Deployment
 

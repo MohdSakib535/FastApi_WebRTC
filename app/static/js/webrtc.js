@@ -38,6 +38,160 @@ const peersList = document.getElementById('peersList');
 const localStatus = document.getElementById('localStatus');
 const videoContainer = document.getElementById('videoContainer');
 const noRemotesNotice = document.getElementById('noRemotesNotice');
+const recordBtn = document.getElementById('recordBtn');
+const transcriptOutput = document.getElementById('transcriptOutput');
+const recordingStatus = document.getElementById('recordingStatus');
+const summarizeBtn = document.getElementById('summarizeBtn');
+const downloadPdfBtn = document.getElementById('downloadPdfBtn');
+const summaryOutput = document.getElementById('summaryOutput');
+const summaryStatus = document.getElementById('summaryStatus');
+// Single active recorder per room
+let activeRecorder = null;
+let roomTranscriptBuffer = '';
+let roomInterim = '';
+
+// Speech-to-Text via Web Speech API (Chrome-based)
+let SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+let recognition = null;
+let isRecording = false;
+let shouldKeepRecording = false;
+let recognitionRestartTimer = null;
+let transcriptBuffer = '';
+// Throttle transcript-update messages to reduce WS traffic
+let transcriptSendTimer = null;
+let lastTranscriptSendAt = 0;
+const TRANSCRIPT_SEND_INTERVAL_MS = 300;
+// Track how much of transcriptBuffer has been persisted to backend
+let lastSavedLength = 0;
+function renderRoomTranscript() {
+    if (!transcriptOutput) return;
+    const buf = (roomTranscriptBuffer || '').trim();
+    const inter = (roomInterim || '').trim();
+    let text = buf;
+    if (inter) text = (text ? text + ' ' : '') + inter + '…';
+    transcriptOutput.textContent = text;
+}
+
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const res = event.results[i];
+            if (res.isFinal) {
+                transcriptBuffer += (transcriptBuffer ? ' ' : '') + res[0].transcript.trim();
+            } else {
+                interim += res[0].transcript;
+            }
+        }
+        // Update local room transcript view and broadcast to room
+        roomTranscriptBuffer = transcriptBuffer;
+        roomInterim = interim;
+        renderRoomTranscript();
+        scheduleTranscriptUpdate();
+
+        // Persist only the newly finalized portion to backend
+        const delta = transcriptBuffer.slice(lastSavedLength).trim();
+        if (delta.length > 0) {
+            saveTranscriptChunk(delta);
+            lastSavedLength = transcriptBuffer.length;
+        }
+    };
+
+    function sendTranscriptUpdateNow() {
+        try {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'transcript-update',
+                    buffer: roomTranscriptBuffer,
+                    interim: roomInterim,
+                    language: recognition.lang
+                }));
+            }
+        } catch {}
+    }
+
+    function scheduleTranscriptUpdate() {
+        const now = Date.now();
+        const elapsed = now - lastTranscriptSendAt;
+        if (elapsed >= TRANSCRIPT_SEND_INTERVAL_MS) {
+            sendTranscriptUpdateNow();
+            lastTranscriptSendAt = now;
+        } else {
+            if (transcriptSendTimer) clearTimeout(transcriptSendTimer);
+            transcriptSendTimer = setTimeout(() => {
+                sendTranscriptUpdateNow();
+                lastTranscriptSendAt = Date.now();
+                transcriptSendTimer = null;
+            }, TRANSCRIPT_SEND_INTERVAL_MS - elapsed);
+        }
+    }
+
+    recognition.onerror = (e) => {
+        console.warn('Speech recognition error', e);
+        const recoverable = ['no-speech', 'audio-capture', 'aborted', 'network'];
+        if (shouldKeepRecording && recoverable.includes(e.error)) {
+            try { recognition.stop(); } catch {}
+            if (recognitionRestartTimer) clearTimeout(recognitionRestartTimer);
+            recognitionRestartTimer = setTimeout(() => {
+                try { recognition.start(); } catch {}
+            }, 500);
+            return;
+        }
+        updateStatus('Recognition error');
+        if (isRecording) stopRecording();
+    };
+
+    recognition.onend = async () => {
+        if (shouldKeepRecording) {
+            if (recognitionRestartTimer) clearTimeout(recognitionRestartTimer);
+            recognitionRestartTimer = setTimeout(() => {
+                try { recognition.start(); } catch {}
+            }, 300);
+            return;
+        }
+        // Finalize only on explicit stop
+        if (isRecording) {
+            isRecording = false;
+            if (recordBtn) {
+                recordBtn.textContent = '⏺️ Start Recording';
+                recordBtn.classList.remove('btn-danger');
+                recordBtn.classList.add('btn-primary');
+            }
+            try {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'recording-state', recording: false }));
+                }
+            } catch {}
+        }
+        if (transcriptBuffer.trim()) {
+            try {
+                await fetch('/transcripts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        room: currentRoom,
+                        client_id: clientId,
+                        language: recognition ? recognition.lang : 'en-US',
+                        text: transcriptBuffer.trim()
+                    })
+                });
+                updateStatus('Transcript saved');
+            } catch (err) {
+                console.error('Failed to save transcript', err);
+                updateStatus('Failed to save transcript');
+            }
+        }
+        updateRecordingUI();
+    };
+} else if (recordBtn && transcriptOutput) {
+    recordBtn.disabled = true;
+    transcriptOutput.textContent = 'Speech recognition not supported in this browser.';
+}
 
 clientIdDisplay.textContent = clientId;
 console.log('Client ID:', clientId);
@@ -58,11 +212,123 @@ async function initLocalStream() {
         localStatus.textContent = 'Active';
         updateStatus('✅ Camera ready');
         console.log('✅ Local stream initialized');
+        if (recordBtn && recognition) {
+            // Enable only when connected to a room
+            recordBtn.disabled = !(ws && ws.readyState === WebSocket.OPEN);
+        }
     } catch (error) {
         console.error('Error:', error);
         localStatus.textContent = 'Error';
         updateStatus('❌ Camera access denied');
         alert('Please allow camera and microphone access');
+    }
+}
+
+function toggleRecording() {
+    if (!recognition) {
+        alert('Speech recognition is not supported in this browser.');
+        return;
+    }
+    if (activeRecorder && activeRecorder !== clientId) {
+        updateStatus(`Recording already active by ${activeRecorder}`);
+        return;
+    }
+    if (!isRecording) {
+        startRecording();
+    } else {
+        stopRecording();
+    }
+}
+
+function startRecording() {
+    transcriptBuffer = '';
+    lastSavedLength = 0;
+    if (transcriptOutput) transcriptOutput.textContent = '';
+    try {
+        shouldKeepRecording = true;
+        recognition.start();
+        isRecording = true;
+        // Notify room
+        try {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'recording-state', recording: true }));
+                // Initialize a clean shared transcript for everyone
+                ws.send(JSON.stringify({
+                    type: 'transcript-update',
+                    buffer: '',
+                    interim: '',
+                    language: recognition.lang
+                }));
+                lastTranscriptSendAt = 0;
+                if (transcriptSendTimer) { clearTimeout(transcriptSendTimer); transcriptSendTimer = null; }
+            }
+        } catch {}
+        activeRecorder = clientId;
+        updateRecordingUI();
+        if (recordBtn) {
+            recordBtn.textContent = '⏹ Stop Recording';
+            recordBtn.classList.remove('btn-primary');
+            recordBtn.classList.add('btn-danger');
+        }
+        updateStatus('Recording…');
+    } catch (e) {
+        console.warn('Failed to start recognition', e);
+        updateStatus('Could not start recording');
+    }
+}
+
+function stopRecording() {
+    try {
+        shouldKeepRecording = false;
+        recognition.stop();
+    } catch (e) {
+        console.warn('Failed to stop recognition', e);
+    }
+    isRecording = false;
+    // Notify room
+    try {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'recording-state', recording: false }));
+        }
+    } catch {}
+    if (transcriptSendTimer) { clearTimeout(transcriptSendTimer); transcriptSendTimer = null; }
+    updateRecordingUI();
+    if (recordBtn) {
+        recordBtn.textContent = '⏺️ Start Recording';
+        recordBtn.classList.remove('btn-danger');
+        recordBtn.classList.add('btn-primary');
+    }
+    updateStatus('Recording stopped');
+}
+
+function updateRecordingUI() {
+    if (recordingStatus) {
+        if (!activeRecorder) {
+            recordingStatus.textContent = 'Off';
+        } else {
+            recordingStatus.textContent = `On (${activeRecorder})`;
+        }
+    }
+    if (recordBtn && recognition) {
+        if (activeRecorder && activeRecorder !== clientId) {
+            recordBtn.disabled = true;
+            recordBtn.textContent = 'Recording in progress';
+            recordBtn.classList.remove('btn-primary');
+            recordBtn.classList.remove('btn-danger');
+        } else {
+            // If not connected, elsewhere we disable the button; we don't override that here
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                recordBtn.disabled = false;
+                recordBtn.textContent = isRecording ? '⏹ Stop Recording' : '⏺️ Start Recording';
+                if (isRecording) {
+                    recordBtn.classList.add('btn-danger');
+                    recordBtn.classList.remove('btn-primary');
+                } else {
+                    recordBtn.classList.add('btn-primary');
+                    recordBtn.classList.remove('btn-danger');
+                }
+            }
+        }
     }
 }
 
@@ -204,6 +470,11 @@ async function joinRoom() {
         document.getElementById('joinBtn').disabled = true;
         document.getElementById('leaveBtn').disabled = false;
         roomInput.disabled = true;
+        if (recordBtn && recognition) {
+            recordBtn.disabled = false;
+        }
+        if (summarizeBtn) summarizeBtn.disabled = false;
+        if (downloadPdfBtn) downloadPdfBtn.disabled = false;
     };
 
     ws.onmessage = async (event) => {
@@ -218,6 +489,11 @@ async function joinRoom() {
                     if (!peers.has(id)) {
                         await createOffer(id);
                     }
+                }
+                // Sync active recorder state on join
+                if (typeof message.active_recorder !== 'undefined') {
+                    activeRecorder = message.active_recorder || null;
+                    updateRecordingUI();
                 }
                 break;
 
@@ -235,6 +511,10 @@ async function joinRoom() {
             case 'user-left':
                 removePeer(message.client_id);
                 updatePeersList(message.clients?.filter(id => id !== clientId) || []);
+                if (message.client_id && message.client_id === activeRecorder) {
+                    activeRecorder = null;
+                    updateRecordingUI();
+                }
                 break;
 
             case 'offer':
@@ -247,6 +527,38 @@ async function joinRoom() {
 
             case 'ice-candidate':
                 await handleIceCandidate(message.sender_id, message.candidate);
+                break;
+
+            case 'recording-state':
+                if (message.recording) {
+                    activeRecorder = message.active_recorder || message.sender_id;
+                    // Reset transcript display at the start
+                    roomTranscriptBuffer = '';
+                    roomInterim = '';
+                    renderRoomTranscript();
+                } else {
+                    activeRecorder = null;
+                    // Optionally keep last transcript on stop, do not clear here.
+                }
+                updateRecordingUI();
+                break;
+
+            case 'transcript-update':
+                // Only display the active recorder's transcript
+                roomTranscriptBuffer = message.buffer || '';
+                roomInterim = message.interim || '';
+                renderRoomTranscript();
+                break;
+
+            case 'recording-denied':
+                // Another user is already recording. Ensure our UI reflects that state.
+                if (isRecording) {
+                    try { recognition.stop(); } catch {}
+                    isRecording = false;
+                }
+                shouldKeepRecording = false;
+                activeRecorder = message.active_recorder || null;
+                updateRecordingUI();
                 break;
         }
     };
@@ -346,6 +658,15 @@ function leaveRoom() {
     if (ws) {
         ws.close();
     }
+    if (recordBtn) recordBtn.disabled = true;
+    if (summarizeBtn) summarizeBtn.disabled = true;
+    if (downloadPdfBtn) downloadPdfBtn.disabled = true;
+    if (isRecording && recognition) {
+        try { recognition.stop(); } catch {}
+        isRecording = false;
+    }
+    shouldKeepRecording = false;
+    if (transcriptSendTimer) { clearTimeout(transcriptSendTimer); transcriptSendTimer = null; }
     // Close all peer connections and remove UI
     Array.from(peers.keys()).forEach(removePeer);
     
@@ -356,6 +677,89 @@ function leaveRoom() {
     document.getElementById('roomInput').disabled = false;
     updateStatus('Left the room');
     updatePeersList([]);
+    roomTranscriptBuffer = '';
+    roomInterim = '';
+    renderRoomTranscript();
+    activeRecorder = null;
+    updateRecordingUI();
+}
+
+async function saveTranscriptChunk(chunkText) {
+    try {
+        await fetch('/transcripts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                room: currentRoom,
+                client_id: clientId,
+                language: recognition ? recognition.lang : 'en-US',
+                text: chunkText
+            })
+        });
+    } catch (e) {
+        console.warn('Failed to persist transcript chunk', e);
+    }
+}
+
+async function summarizeRoom() {
+    if (!currentRoom) {
+        alert('Join a room first');
+        return;
+    }
+    if (summaryOutput) summaryOutput.textContent = '';
+    if (summaryStatus) summaryStatus.textContent = 'Summarizing…';
+    try {
+        const res = await fetch(`/summaries/room/${encodeURIComponent(currentRoom)}`, {
+            method: 'POST'
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Request failed (${res.status})`);
+        }
+        const data = await res.json();
+        if (summaryOutput) summaryOutput.textContent = data.summary || 'No summary.';
+        if (summaryStatus) summaryStatus.textContent = '';
+    } catch (e) {
+        console.error('Summarize failed', e);
+        if (summaryStatus) summaryStatus.textContent = `Error: ${e.message}`;
+    }
+}
+
+async function downloadSummaryPdf() {
+    if (!currentRoom) {
+        alert('Join a room first');
+        return;
+    }
+    if (summaryStatus) summaryStatus.textContent = 'Generating PDF…';
+    if (downloadPdfBtn) downloadPdfBtn.disabled = true;
+    try {
+        const body = { summary: (summaryOutput && summaryOutput.textContent) ? summaryOutput.textContent : '' };
+        const res = await fetch(`/summaries/room/${encodeURIComponent(currentRoom)}/pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Request failed (${res.status})`);
+        }
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ts = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+        a.download = `room-summary-${currentRoom}-${ts}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        if (summaryStatus) summaryStatus.textContent = '';
+    } catch (e) {
+        console.error('Download PDF failed', e);
+        if (summaryStatus) summaryStatus.textContent = `Error: ${e.message}`;
+    } finally {
+        if (downloadPdfBtn) downloadPdfBtn.disabled = false;
+    }
 }
 
 function removePeer(peerId) {
