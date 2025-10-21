@@ -243,9 +243,9 @@ For production use:
 
 MIT License
 
-## Support
+## Demo
 
-For issues, please check the logs and browser console (F12).
+<img width="702" height="723" alt="Screenshot 2025-10-21 at 3 29 11 PM" src="https://github.com/user-attachments/assets/882e7381-170e-411b-b82f-230104069611" />
 
 
 build:
