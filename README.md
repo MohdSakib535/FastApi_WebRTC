@@ -176,7 +176,8 @@ For production use:
 MIT License
 
 ## Demo
-<img width="1091" height="599" alt="Screenshot 2025-10-19 at 4 50 23 PM" src="https://github.com/user-attachments/assets/18089b18-134b-48da-a5a4-61db1816402c" />
+
+<img width="702" height="723" alt="Screenshot 2025-10-21 at 3 29 11 PM" src="https://github.com/user-attachments/assets/882e7381-170e-411b-b82f-230104069611" />
 
 
 
